@@ -1,0 +1,6 @@
+{
+  "security": "none",
+  "allowedDomains": "*.catprint.com",
+  "tunnel": false,
+  "showUi": false
+}

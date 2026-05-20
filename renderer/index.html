@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Remote Access Server</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --card: #0f3460;
+      --accent: #e94560;
+      --accent2: #4fc3f7;
+      --text: #e0e0e0;
+      --muted: #888;
+      --green: #4caf50;
+      --red: #f44336;
+      --border: #1e4080;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header h1 { font-size: 16px; font-weight: 600; color: var(--accent2); }
+
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 300px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .section { display: flex; flex-direction: column; gap: 8px; }
+    .section label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+    input[type="text"], input[type="number"] {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      width: 100%;
+    }
+    input:focus { outline: none; border-color: var(--accent2); }
+
+    .dir-row { display: flex; gap: 6px; }
+    .dir-row input { flex: 1; }
+
+    button {
+      border: none;
+      border-radius: 6px;
+      padding: 9px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; font-weight: 600; }
+    .btn-secondary { background: var(--card); color: var(--text); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    .toggle-btn {
+      background: var(--green);
+      color: #fff;
+      font-weight: 600;
+      width: 100%;
+      padding: 11px;
+    }
+    .toggle-btn.stop { background: var(--red); }
+
+    .key-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
+    .key-value { flex: 1; font-family: monospace; font-size: 11px; word-break: break-all; color: var(--accent2); }
+
+    .info-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .info-row { display: flex; justify-content: space-between; align-items: center; }
+    .info-val { color: var(--accent2); font-family: monospace; font-size: 12px; }
+
+    .ip-list { display: flex; flex-direction: column; gap: 3px; }
+    .ip-chip {
+      font-family: monospace;
+      font-size: 11px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 7px;
+      color: var(--accent2);
+      word-break: break-all;
+    }
+
+    .tunnel-box {
+      background: #1a1200;
+      border: 1px solid #7c5200;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .tunnel-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #ffb74d;
+      font-weight: 600;
+    }
+    .tunnel-url-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tunnel-url {
+      flex: 1;
+      font-family: monospace;
+      font-size: 11px;
+      color: #ffcc80;
+      word-break: break-all;
+    }
+    .tunnel-connecting {
+      color: #888;
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    .log-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #0a0a14;
+    }
+
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .log-header span { font-size: 12px; color: var(--muted); }
+
+    .log-entries {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      font-family: 'Consolas', 'Menlo', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .log-entry {
+      display: flex;
+      gap: 10px;
+      padding: 2px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .log-time { color: var(--muted); flex-shrink: 0; }
+    .log-method { min-width: 50px; font-weight: bold; }
+    .log-path { color: var(--text); flex: 1; }
+    .log-status { flex-shrink: 0; }
+    .log-ms { color: var(--muted); font-size: 11px; }
+    .log-ip { color: var(--muted); font-size: 11px; }
+
+    .s2xx { color: var(--green); }
+    .s4xx { color: orange; }
+    .s5xx { color: var(--red); }
+
+    .check-row { display: flex; align-items: center; gap: 8px; }
+    .check-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+
+    .api-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .api-section code {
+      background: #0a0a14;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent2);
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="status-dot" id="dot"></div>
+    <h1>Remote Access Server</h1>
+    <span id="header-status" style="color: var(--muted); font-size: 12px; margin-left: auto;">Stopped</span>
+  </header>
+
+  <div class="main">
+    <div class="sidebar">
+
+      <div class="section">
+        <label>Root Directory</label>
+        <div class="dir-row">
+          <input type="text" id="root-dir" placeholder="Default: home directory" />
+          <button class="btn-secondary btn-sm" id="browse-btn">Browse</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <label>Port</label>
+        <input type="number" id="port-input" value="8080" min="1" max="65535" />
+      </div>
+
+      <div class="section">
+        <label>Security</label>
+        <div class="key-row" id="security-row">
+          <span class="key-value" id="security-display">—</span>
+          <button class="btn-secondary btn-sm" id="copy-key-btn" title="Copy API key" style="display:none;">⎘</button>
+        </div>
+      </div>
+
+      <button class="toggle-btn" id="toggle-btn">Start Server</button>
+
+      <div class="info-box" id="info-box" style="display:none;">
+        <div class="info-row">
+          <span>Port</span>
+          <span class="info-val" id="info-port">—</span>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Local URLs:</div>
+        <div class="ip-list" id="ip-list"></div>
+      </div>
+
+      <div class="tunnel-box" id="tunnel-box" style="display:none;">
+        <div class="tunnel-label">&#9729; Cloudflare Tunnel</div>
+        <div class="tunnel-url-row">
+          <span class="tunnel-url" id="tunnel-url-display"><span class="tunnel-connecting">Connecting…</span></span>
+          <button class="btn-secondary btn-sm" id="copy-tunnel-btn" title="Copy tunnel URL" style="display:none;">⎘</button>
+        </div>
+      </div>
+
+      <div class="api-section">
+        <b style="color:var(--text);">Quick API Reference</b><br/>
+        <code>GET /fs/list?path=/</code> — list dir<br/>
+        <code>GET /fs/read?path=...</code> — read file<br/>
+        <code>POST /fs/write?path=...</code> — write file<br/>
+        <code>DELETE /fs/delete?path=...</code> — delete<br/>
+        <code>GET /printers/list</code> — list printers<br/>
+        <code>POST /printers/print</code> — print file<br/>
+        <code>GET /serial/list</code> — list ports<br/>
+        <code>POST /serial/open</code> — open port<br/>
+        <code>POST /serial/write</code> — write data<br/>
+        <code>WS /serial/stream?port=...</code> — stream<br/>
+        <span id="auth-hint" style="color:var(--accent2);"></span>
+      </div>
+
+    </div>
+
+    <div class="log-panel">
+      <div class="log-header">
+        <b style="color:var(--text);">Request Log</b>
+        <button class="btn-secondary btn-sm" id="clear-log-btn">Clear</button>
+      </div>
+      <div class="log-entries" id="log-entries">
+        <div style="color: var(--muted); padding: 12px 0; text-align:center;">Start the server to see requests here.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
