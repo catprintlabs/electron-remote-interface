@@ -71,6 +71,19 @@
     .section { display: flex; flex-direction: column; gap: 8px; }
     .section label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 
+    select {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      width: 100%;
+      cursor: pointer;
+    }
+    select:focus { outline: none; border-color: var(--accent2); }
+    select:disabled { opacity: 0.4; cursor: not-allowed; }
+
     input[type="text"], input[type="number"] {
       background: var(--card);
       border: 1px solid var(--border);
@@ -266,10 +279,31 @@
       </div>
 
       <div class="section">
-        <label>Security</label>
-        <div class="key-row" id="security-row">
-          <span class="key-value" id="security-display">—</span>
-          <button class="btn-secondary btn-sm" id="copy-key-btn" title="Copy API key" style="display:none;">⎘</button>
+        <label>Security Mode</label>
+        <select id="security-mode">
+          <option value="none">None</option>
+          <option value="domains">Domain Whitelist</option>
+          <option value="api-key">API Key</option>
+        </select>
+      </div>
+
+      <div class="section" id="domains-section" style="display:none;">
+        <label>Allowed Domains</label>
+        <input type="text" id="domains-input" placeholder="*.catprint.com,www.example.org" />
+      </div>
+
+      <div class="section" id="apikey-section" style="display:none;">
+        <label>API Key</label>
+        <div class="dir-row">
+          <input type="text" id="apikey-input" placeholder="Enter API key" />
+          <button class="btn-secondary btn-sm" id="copy-key-btn" title="Copy API key">⎘</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="check-row">
+          <input type="checkbox" id="tunnel-check" />
+          <label for="tunnel-check" style="text-transform:none; font-size:13px; color:var(--text); cursor:pointer;">Enable Cloudflare Tunnel</label>
         </div>
       </div>
 
@@ -291,6 +325,8 @@
           <button class="btn-secondary btn-sm" id="copy-tunnel-btn" title="Copy tunnel URL" style="display:none;">⎘</button>
         </div>
       </div>
+
+      <button class="toggle-btn stop" id="quit-btn" style="margin-top:auto;">Quit</button>
 
       <div class="api-section">
         <b style="color:var(--text);">Quick API Reference</b><br/>

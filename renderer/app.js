@@ -4,8 +4,14 @@ const toggleBtn = document.getElementById('toggle-btn');
 const portInput = document.getElementById('port-input');
 const rootDirInput = document.getElementById('root-dir');
 const browseBtn = document.getElementById('browse-btn');
-const securityDisplay = document.getElementById('security-display');
+const securityMode = document.getElementById('security-mode');
+const domainsSection = document.getElementById('domains-section');
+const domainsInput = document.getElementById('domains-input');
+const apikeySection = document.getElementById('apikey-section');
+const apikeyInput = document.getElementById('apikey-input');
 const copyKeyBtn = document.getElementById('copy-key-btn');
+const tunnelCheck = document.getElementById('tunnel-check');
+const quitBtn = document.getElementById('quit-btn');
 const authHint = document.getElementById('auth-hint');
 const infoBox = document.getElementById('info-box');
 const infoPort = document.getElementById('info-port');
@@ -20,11 +26,43 @@ let running = false;
 let logCount = 0;
 const MAX_LOG = 500;
 
-function securityLabel(config) {
-  if (!config || config.mode === 'none') return '(disabled)';
-  if (config.mode === 'domains') return `Domains: ${config.allowedDomains}`;
-  if (config.mode === 'api-key') return config.apiKey || '(none)';
-  return '—';
+function getSecurityFromUI() {
+  const mode = securityMode.value;
+  if (mode === 'domains') return { mode: 'domains', allowedDomains: domainsInput.value.trim() || '*.catprint.com' };
+  if (mode === 'api-key') return { mode: 'api-key', apiKey: apikeyInput.value.trim() };
+  return { mode: 'none' };
+}
+
+function applySecurityToUI(cfg) {
+  if (!cfg) return;
+  securityMode.value = cfg.mode || 'none';
+  if (cfg.mode === 'domains') domainsInput.value = cfg.allowedDomains || '';
+  if (cfg.mode === 'api-key') apikeyInput.value = cfg.apiKey || '';
+  updateSecuritySections();
+}
+
+function updateSecuritySections() {
+  const mode = securityMode.value;
+  domainsSection.style.display = mode === 'domains' ? '' : 'none';
+  apikeySection.style.display  = mode === 'api-key'  ? '' : 'none';
+
+  if (mode === 'api-key') {
+    authHint.innerHTML = `Header: <code>x-api-key: &lt;key&gt;</code>`;
+  } else if (mode === 'domains') {
+    authHint.innerHTML = `Requests must include an <code>Origin</code> header from an allowed domain`;
+  } else {
+    authHint.textContent = '';
+  }
+}
+
+function setControlsDisabled(disabled) {
+  portInput.disabled = disabled;
+  rootDirInput.disabled = disabled;
+  browseBtn.disabled = disabled;
+  securityMode.disabled = disabled;
+  domainsInput.disabled = disabled;
+  apikeyInput.disabled = disabled;
+  tunnelCheck.disabled = disabled;
 }
 
 function applyTunnelUrl(url) {
@@ -43,22 +81,7 @@ function applyStatus(data) {
   headerStatus.textContent = running ? `Running on :${data.port}` : 'Stopped';
   toggleBtn.textContent = running ? 'Stop Server' : 'Start Server';
   toggleBtn.className = 'toggle-btn' + (running ? ' stop' : '');
-  portInput.disabled = running;
-  rootDirInput.disabled = running;
-  browseBtn.disabled = running;
-
-  const cfg = data.securityConfig;
-  securityDisplay.textContent = securityLabel(cfg);
-  if (cfg?.mode === 'api-key') {
-    copyKeyBtn.style.display = '';
-    authHint.innerHTML = `Header: <code>x-api-key: &lt;key&gt;</code>`;
-  } else if (cfg?.mode === 'domains') {
-    copyKeyBtn.style.display = 'none';
-    authHint.innerHTML = `Requests must include an <code>Origin</code> header from an allowed domain`;
-  } else {
-    copyKeyBtn.style.display = 'none';
-    authHint.textContent = '';
-  }
+  setControlsDisabled(running);
 
   if (running) {
     infoBox.style.display = 'flex';
@@ -71,7 +94,6 @@ function applyStatus(data) {
       chip.textContent = `http://${ip}:${data.port}`;
       ipList.appendChild(chip);
     }
-
     if (data.tunnelMode) {
       tunnelBox.style.display = 'flex';
       applyTunnelUrl(data.tunnelUrl || null);
@@ -91,10 +113,7 @@ function statusClass(code) {
 function addLog(entry) {
   if (logCount === 0) logEntries.innerHTML = '';
   logCount++;
-
-  if (logCount > MAX_LOG) {
-    logEntries.removeChild(logEntries.firstChild);
-  }
+  if (logCount > MAX_LOG) logEntries.removeChild(logEntries.firstChild);
 
   const row = document.createElement('div');
   row.className = 'log-entry';
@@ -115,12 +134,20 @@ function addLog(entry) {
 
 async function init() {
   const status = await window.api.getStatus();
+
+  // Pre-populate controls from initial config
+  portInput.value = status.port || 8080;
+  applySecurityToUI(status.securityConfig);
+  tunnelCheck.checked = status.tunnelMode || false;
+
   applyStatus(status);
 
   window.api.onStatusChanged(applyStatus);
   window.api.onTunnelUrl(applyTunnelUrl);
   window.api.onLog(addLog);
 }
+
+securityMode.addEventListener('change', updateSecuritySections);
 
 toggleBtn.addEventListener('click', async () => {
   toggleBtn.disabled = true;
@@ -129,10 +156,10 @@ toggleBtn.addEventListener('click', async () => {
   } else {
     const port = parseInt(portInput.value, 10) || 8080;
     const rootDir = rootDirInput.value.trim() || null;
-    const result = await window.api.startServer({ port, rootDir });
-    if (!result.ok) {
-      alert('Failed to start server: ' + result.error);
-    }
+    const security = getSecurityFromUI();
+    const tunnelMode = tunnelCheck.checked;
+    const result = await window.api.startServer({ port, rootDir, security, tunnelMode });
+    if (!result.ok) alert('Failed to start server: ' + result.error);
   }
   toggleBtn.disabled = false;
 });
@@ -143,8 +170,8 @@ browseBtn.addEventListener('click', async () => {
 });
 
 copyKeyBtn.addEventListener('click', () => {
-  const key = securityDisplay.textContent;
-  if (key && key !== '—' && key !== '(none)' && key !== '(disabled)') {
+  const key = apikeyInput.value;
+  if (key) {
     navigator.clipboard.writeText(key).catch(() => {});
     copyKeyBtn.textContent = '✓';
     setTimeout(() => { copyKeyBtn.textContent = '⎘'; }, 1200);
@@ -163,6 +190,10 @@ copyTunnelBtn.addEventListener('click', () => {
 clearLogBtn.addEventListener('click', () => {
   logEntries.innerHTML = '<div style="color: var(--muted); padding: 12px 0; text-align:center;">Log cleared.</div>';
   logCount = 0;
+});
+
+quitBtn.addEventListener('click', () => {
+  window.api.quitApp();
 });
 
 init();

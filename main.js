@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -7,11 +7,9 @@ const { spawn } = require('child_process');
 const { startServer, stopServer } = require('./server');
 
 let mainWindow = null;
-let tray = null;
 let serverPort = 8080;
 let securityConfig = null;
 let TUNNEL_MODE = false;
-let NO_UI = true;
 let serverRunning = false;
 let tunnelProcess = null;
 let tunnelUrl = null;
@@ -25,13 +23,8 @@ function resolveConfig() {
     }
   } catch {}
 
-  // tunnel: CLI --tunnel overrides config
   const tunnel = process.argv.includes('--tunnel') || fileConfig.tunnel === true;
 
-  // showUi: CLI --show-ui overrides config
-  const noUi = !process.argv.includes('--show-ui') && fileConfig.showUi !== true;
-
-  // Security: CLI flags take priority over config file
   let security;
   if (process.argv.includes('--no-security')) {
     security = { mode: 'none' };
@@ -58,20 +51,19 @@ function resolveConfig() {
     }
   }
 
-  return { security, tunnel, noUi };
+  return { security, tunnel };
 }
 
 function resolveCloudflared() {
-  // Bundled .app on Mac doesn't inherit shell PATH, so check common install locations
   const candidates = [
-    '/opt/homebrew/bin/cloudflared',  // Homebrew on Apple Silicon
-    '/usr/local/bin/cloudflared',     // Homebrew on Intel / manual install
+    '/opt/homebrew/bin/cloudflared',
+    '/usr/local/bin/cloudflared',
     '/usr/bin/cloudflared',
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  return 'cloudflared'; // fall back to PATH lookup (works in dev)
+  return 'cloudflared';
 }
 
 function startTunnel(port) {
@@ -89,7 +81,6 @@ function startTunnel(port) {
       if (match) {
         resolved = true;
         tunnelUrl = match[0];
-        process.stdout.write(`\nCloudflare Tunnel: ${tunnelUrl}\n\n`);
         mainWindow?.webContents.send('tunnel-url', tunnelUrl);
         resolve(tunnelUrl);
       }
@@ -110,7 +101,6 @@ function startTunnel(port) {
       mainWindow?.webContents.send('tunnel-url', null);
     });
 
-    // Give cloudflared 30s to establish the tunnel before giving up
     setTimeout(() => { if (!resolved) { resolved = true; resolve(null); } }, 30000);
   });
 }
@@ -136,6 +126,17 @@ function getLocalIPs() {
   return ips;
 }
 
+function broadcastStatus() {
+  mainWindow?.webContents.send('status-changed', {
+    running: serverRunning,
+    port: serverPort,
+    securityConfig,
+    ips: getLocalIPs(),
+    tunnelMode: TUNNEL_MODE,
+    tunnelUrl,
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 720,
@@ -152,11 +153,18 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.minimize();
+    autoStart();
+  });
+
+  // Close button minimizes; use Quit button to actually exit
   mainWindow.on('close', (e) => {
-    if (serverRunning) {
+    if (!app.isQuitting) {
       e.preventDefault();
-      mainWindow.hide();
+      mainWindow.minimize();
     }
   });
 }
@@ -175,26 +183,22 @@ async function autoStart() {
   try {
     await startServer({ port: serverPort, rootDir: null, security: securityConfig, onLog });
     serverRunning = true;
-    mainWindow?.webContents.send('status-changed', { running: true, port: serverPort, securityConfig, ips: getLocalIPs(), tunnelMode: TUNNEL_MODE, tunnelUrl: null });
-    if (NO_UI) {
-      const ips = getLocalIPs().map((ip) => `  http://${ip}:${serverPort}`).join('\n');
-      process.stdout.write(`\nServer running on port ${serverPort}\n${ips}\n`);
-      if (securityConfig.mode === 'api-key') process.stdout.write(`API key: ${securityConfig.apiKey}\n`);
-      if (securityConfig.mode === 'domains') process.stdout.write(`Allowed domains: ${securityConfig.allowedDomains}\n`);
-    }
+    broadcastStatus();
     if (TUNNEL_MODE) startTunnel(serverPort);
   } catch (err) {
     console.error('Auto-start failed:', err.message);
   }
 }
 
-ipcMain.handle('start-server', async (_, { port, rootDir }) => {
+ipcMain.handle('start-server', async (_, { port, rootDir, security, tunnelMode }) => {
   if (serverRunning) return { ok: false, error: 'Already running' };
   serverPort = port || 8080;
+  if (security) securityConfig = security;
+  if (tunnelMode !== undefined) TUNNEL_MODE = tunnelMode;
   try {
     await startServer({ port: serverPort, rootDir, security: securityConfig, onLog });
     serverRunning = true;
-    mainWindow?.webContents.send('status-changed', { running: true, port: serverPort, securityConfig, ips: getLocalIPs(), tunnelMode: TUNNEL_MODE, tunnelUrl: null });
+    broadcastStatus();
     if (TUNNEL_MODE) startTunnel(serverPort);
     return { ok: true };
   } catch (err) {
@@ -206,7 +210,7 @@ ipcMain.handle('stop-server', async () => {
   stopTunnel();
   await stopServer();
   serverRunning = false;
-  mainWindow?.webContents.send('status-changed', { running: false, port: serverPort, securityConfig, ips: getLocalIPs(), tunnelMode: TUNNEL_MODE, tunnelUrl: null });
+  broadcastStatus();
   return { ok: true };
 });
 
@@ -214,6 +218,11 @@ ipcMain.handle('select-directory', async () => {
   const { dialog } = require('electron');
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
   return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('quit-app', async () => {
+  app.isQuitting = true;
+  app.quit();
 });
 
 function onLog(entry) {
@@ -224,23 +233,16 @@ app.whenReady().then(() => {
   const cfg = resolveConfig();
   securityConfig = cfg.security;
   TUNNEL_MODE = cfg.tunnel;
-  NO_UI = cfg.noUi;
 
-  if (NO_UI) {
-    if (process.platform === 'darwin') app.dock.hide();
-    autoStart();
-  } else {
-    createWindow();
-    mainWindow.once('ready-to-show', autoStart);
-    app.on('activate', () => {
-      if (mainWindow) mainWindow.show();
-    });
-  }
+  createWindow();
+
+  app.on('activate', () => {
+    if (mainWindow) mainWindow.show();
+  });
 });
 
 app.on('window-all-closed', () => {
-  // In --no-ui mode keep the process alive even though there are no windows
-  if (!NO_UI && process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', async () => {
