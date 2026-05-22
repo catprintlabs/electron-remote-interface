@@ -1,6 +1,6 @@
 {
   "name": "electron-remote-interface",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.4",
   "description": "Remote HTTP access to file system, printers, and serial ports",
   "main": "main.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "test": "jest --runInBand --forceExit",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
-    "build": "electron-builder --mac --win"
+    "build": "electron-builder --mac --win",
+    "release": "node scripts/release.js"
   },
   "build": {
     "appId": "com.catprint.electron-remote-interface",
@@ -28,15 +29,31 @@
       }
     ],
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "category": "public.app-category.utilities"
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
     }
   },
   "jest": {
