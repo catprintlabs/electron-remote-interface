@@ -1,6 +1,6 @@
 {
   "name": "electron-remote-interface",
-  "version": "1.0.0-alpha.5",
+  "version": "1.0.0-alpha.6",
   "description": "Remote HTTP access to file system, printers, and serial ports",
   "main": "main.js",
   "scripts": {
