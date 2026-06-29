@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 const { startServer, stopServer } = require('./server');
+const { resolveConfig: resolveConfigFromFile, saveConfig: saveConfigToFile } = require('./lib/config');
 
 let mainWindow = null;
 let serverPort = 8080;
@@ -14,44 +15,12 @@ let serverRunning = false;
 let tunnelProcess = null;
 let tunnelUrl = null;
 
+function saveConfig(opts) {
+  saveConfigToFile(app.getPath('userData'), opts);
+}
+
 function resolveConfig() {
-  let fileConfig = {};
-  try {
-    const configPath = path.join(app.getPath('userData'), 'config.json');
-    if (fs.existsSync(configPath)) {
-      fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
-  } catch {}
-
-  const tunnel = process.argv.includes('--tunnel') || fileConfig.tunnel === true;
-
-  let security;
-  if (process.argv.includes('--no-security')) {
-    security = { mode: 'none' };
-  } else {
-    const apiKeyArg = process.argv.find(a => a.startsWith('--api-key='));
-    if (apiKeyArg) {
-      security = { mode: 'api-key', apiKey: apiKeyArg.slice('--api-key='.length) };
-    } else {
-      const domainsArg = process.argv.find(a => a.startsWith('--secure-domains=') || a === '--secure-domains');
-      if (domainsArg) {
-        const domains = domainsArg.includes('=')
-          ? domainsArg.slice('--secure-domains='.length)
-          : (process.env.ERI_ALLOWED_DOMAINS || '*.catprint.com');
-        security = { mode: 'domains', allowedDomains: domains };
-      } else if (fileConfig.security === 'none') {
-        security = { mode: 'none' };
-      } else if (fileConfig.security === 'api-key') {
-        security = { mode: 'api-key', apiKey: fileConfig.apiKey || process.env.ERI_API_KEY };
-      } else if (fileConfig.security === 'domains') {
-        security = { mode: 'domains', allowedDomains: fileConfig.allowedDomains || process.env.ERI_ALLOWED_DOMAINS || '*.catprint.com' };
-      } else {
-        security = { mode: 'domains', allowedDomains: process.env.ERI_ALLOWED_DOMAINS || '*.catprint.com' };
-      }
-    }
-  }
-
-  return { security, tunnel };
+  return resolveConfigFromFile(app.getPath('userData'));
 }
 
 function resolveCloudflared() {
@@ -81,7 +50,7 @@ function startTunnel(port) {
       if (match) {
         resolved = true;
         tunnelUrl = match[0];
-        mainWindow?.webContents.send('tunnel-url', tunnelUrl);
+        send('tunnel-url', tunnelUrl);
         resolve(tunnelUrl);
       }
     }
@@ -98,7 +67,7 @@ function startTunnel(port) {
     tunnelProcess.on('exit', () => {
       tunnelProcess = null;
       tunnelUrl = null;
-      mainWindow?.webContents.send('tunnel-url', null);
+      send('tunnel-url', null);
     });
 
     setTimeout(() => { if (!resolved) { resolved = true; resolve(null); } }, 30000);
@@ -126,8 +95,14 @@ function getLocalIPs() {
   return ips;
 }
 
+function send(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
 function broadcastStatus() {
-  mainWindow?.webContents.send('status-changed', {
+  send('status-changed', {
     running: serverRunning,
     port: serverPort,
     securityConfig,
@@ -160,12 +135,9 @@ function createWindow() {
     autoStart();
   });
 
-  // Close button minimizes; use Quit button to actually exit
-  mainWindow.on('close', (e) => {
-    if (!app.isQuitting) {
-      e.preventDefault();
-      mainWindow.minimize();
-    }
+  mainWindow.on('close', () => {
+    app.isQuitting = true;
+    app.quit();
   });
 }
 
@@ -195,6 +167,7 @@ ipcMain.handle('start-server', async (_, { port, rootDir, security, tunnelMode }
   serverPort = port || 8080;
   if (security) securityConfig = security;
   if (tunnelMode !== undefined) TUNNEL_MODE = tunnelMode;
+  saveConfig({ security: securityConfig, tunnel: TUNNEL_MODE, port: serverPort });
   try {
     await startServer({ port: serverPort, rootDir, security: securityConfig, onLog });
     serverRunning = true;
@@ -226,13 +199,14 @@ ipcMain.handle('quit-app', async () => {
 });
 
 function onLog(entry) {
-  mainWindow?.webContents.send('log', entry);
+  send('log', entry);
 }
 
 app.whenReady().then(() => {
   const cfg = resolveConfig();
   securityConfig = cfg.security;
   TUNNEL_MODE = cfg.tunnel;
+  serverPort = cfg.port;
 
   createWindow();
 

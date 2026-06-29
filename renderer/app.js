@@ -11,7 +11,6 @@ const apikeySection = document.getElementById('apikey-section');
 const apikeyInput = document.getElementById('apikey-input');
 const copyKeyBtn = document.getElementById('copy-key-btn');
 const tunnelCheck = document.getElementById('tunnel-check');
-const quitBtn = document.getElementById('quit-btn');
 const authHint = document.getElementById('auth-hint');
 const infoBox = document.getElementById('info-box');
 const infoPort = document.getElementById('info-port');
@@ -87,8 +86,7 @@ function applyStatus(data) {
     infoBox.style.display = 'flex';
     infoPort.textContent = data.port;
     ipList.innerHTML = '';
-    const ips = data.ips && data.ips.length ? data.ips : ['127.0.0.1'];
-    for (const ip of ips) {
+    for (const ip of ['127.0.0.1']) {
       const chip = document.createElement('div');
       chip.className = 'ip-chip';
       chip.textContent = `http://${ip}:${data.port}`;
@@ -190,10 +188,6 @@ copyTunnelBtn.addEventListener('click', () => {
 clearLogBtn.addEventListener('click', () => {
   logEntries.innerHTML = '<div style="color: var(--muted); padding: 12px 0; text-align:center;">Log cleared.</div>';
   logCount = 0;
-});
-
-quitBtn.addEventListener('click', () => {
-  window.api.quitApp();
 });
 
 init();

@@ -50,7 +50,8 @@ describe('GET /status', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.ok).toBe(true);
-    expect(json.root).toBe(tmpDir);
+    expect(json['root-directory']).toBe(tmpDir);
+    console.log("tmpDir "+json.root)
   });
 });
 

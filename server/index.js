@@ -150,7 +150,7 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
   });
 
   app.get('/status', (req, res) => {
-    res.json({ ok: true, root: resolvedRoot, platform: process.platform });
+    res.json({ ok: true, 'root-directory': resolvedRoot, platform: process.platform });
   });
 
   app.use((err, req, res, next) => {

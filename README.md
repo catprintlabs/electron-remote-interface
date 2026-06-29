@@ -29,8 +29,7 @@ Settings that control how the app starts. CLI flags override these when running 
 {
   "security": "domains",
   "allowedDomains": "*.catprint.com",
-  "tunnel": false,
-  "showUi": false
+  "tunnel": false
 }
 ```
 
@@ -39,8 +38,7 @@ Settings that control how the app starts. CLI flags override these when running 
 ## Running from source
 
 ```bash
-npm start                                  # headless, domains security (default)
-npm start -- --show-ui                     # show the Electron window
+npm start                                  # start with window minimized (domains security by default)
 npm start -- --no-security                 # disable auth (for testing)
 npm start -- --api-key=yourkey             # API key auth
 npm start -- --secure-domains=*.foo.com    # override allowed domains
@@ -87,7 +85,19 @@ npm test             # run all tests
 npm test -- --verbose  # with per-test output
 ```
 
-## Building
+## Releasing
+
+Use the release script to bump the version, commit, tag, and push in one step. GitHub Actions picks up the tag and builds both installers automatically.
+
+```bash
+npm run release 1.0.0-alpha.4
+```
+
+This updates `package.json`, commits, creates a `v1.0.0-alpha.4` git tag, and pushes everything. The Mac DMG and Windows installer will appear under the matching GitHub Release when the build finishes (~10 min).
+
+**Do not** run `git tag` manually or edit `package.json` version by hand — always use this script so the installer filenames match the release tag.
+
+## Building locally
 
 ```bash
 npm run build:mac    # DMG for arm64 + x64
@@ -95,4 +105,4 @@ npm run build:win    # NSIS installer for x64
 npm run build        # both
 ```
 
-Output goes to `dist/`.
+Output goes to `dist/`. Note: building Windows on Mac produces Mac-compiled native bindings and will not work on a PC — use `npm run release` and let GitHub Actions build for the correct platform.
