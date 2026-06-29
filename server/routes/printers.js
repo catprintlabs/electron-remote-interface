@@ -48,19 +48,18 @@ function printFilePosix(file, printerName) {
   });
 }
 
-function printFileWindows(file, printerName) {
-  const ps = printerName
-    ? `Start-Process -FilePath "${file}" -Verb Print -ArgumentList "/p /h \\"${printerName}\\""`
-    : `Start-Process -FilePath "${file}" -Verb Print`;
+function printFileWindows(file, printerName, binDir) {
   return new Promise((resolve, reject) => {
-    exec(`powershell -command "${ps}"`, (err, _stdout, stderr) => {
+    const exe = path.join(binDir, 'PDFtoPrinter.exe');
+    const args = printerName ? [file, printerName] : [file];
+    execFile(exe, args, (err, _stdout, stderr) => {
       if (err) return reject(new Error(stderr || err.message));
       resolve();
     });
   });
 }
 
-module.exports = function printerRouter() {
+module.exports = function printerRouter(binDir) {
   const router = express.Router();
 
   // List printers
@@ -87,7 +86,7 @@ module.exports = function printerRouter() {
       fs.writeFileSync(tmpFile, req.file.buffer);
 
       if (process.platform === 'win32') {
-        await printFileWindows(tmpFile, printerName);
+        await printFileWindows(tmpFile, printerName, binDir);
       } else {
         await printFilePosix(tmpFile, printerName);
       }
@@ -112,7 +111,7 @@ module.exports = function printerRouter() {
       fs.writeFileSync(tmpFile, text, 'utf8');
 
       if (process.platform === 'win32') {
-        await printFileWindows(tmpFile, printerName);
+        await printFileWindows(tmpFile, printerName, binDir);
       } else {
         await printFilePosix(tmpFile, printerName);
       }

@@ -1,78 +1,97 @@
-# PDF Printing Migration Plan
+# PDF Printing Migration — Completed
 
-Source: `/Users/mitchvanduyn/catprintlabs/production_electron`
-Target: `/Users/mitchvanduyn/catprintlabs/electron-remote-interface`
-
-## What We're Porting
-
-The production app uses **PDFtoPrinter.exe** for Windows PDF printing.
-
-- Windows command: `"path/to/PDFtoPrinter.exe" "path/to/file.pdf" "PrinterName"`
-- macOS/Linux command: `lpr -P PrinterName path/to/file.pdf` (unchanged — current implementation is correct)
+## Status: IMPLEMENTED — Awaiting Windows smoke test
 
 ---
 
-## Steps
+## Background
 
-### 1. Copy the Binary
+The original `printFileWindows` implementation used PowerShell's `Start-Process -Verb Print`
+which is unreliable for PDFs on Windows (depends on default PDF viewer, often pops dialogs).
 
-Copy `PDFtoPrinter.exe` from the production app into this project:
-
-```
-FROM: /Users/mitchvanduyn/catprintlabs/production_electron/bin/PDFtoPrinter.exe
-TO:   /Users/mitchvanduyn/catprintlabs/electron-remote-interface/bin/PDFtoPrinter.exe
-```
-
-Size: ~9.5MB
+We replaced it with **PDFtoPrinter.exe**, a small Windows utility proven in production at CatPrint.
 
 ---
 
-### 2. Update `package.json` — Bundle Binary in Windows Build
+## Source of PDFtoPrinter.exe
 
-Add `bin/PDFtoPrinter.exe` to `extraResources` so electron-builder includes it in the Windows installer:
+**Copied from the production Electron app at:**
+```
+/Users/mitchvanduyn/catprintlabs/production_electron/bin/PDFtoPrinter.exe
+```
 
+That repo (`production_electron`) is a sibling directory to this project under:
+```
+/Users/mitchvanduyn/catprintlabs/
+```
+
+The binary is a PE32 Windows executable, ~9.5MB. It is NOT open source — it came from the
+CatPrint production app. If it needs to be sourced again, check the `production_electron` repo.
+
+**PDFtoPrinter.exe CLI usage:**
+```
+PDFtoPrinter.exe "path\to\file.pdf"                  # print to default printer
+PDFtoPrinter.exe "path\to\file.pdf" "Printer Name"   # print to named printer
+```
+
+---
+
+## What Was Changed
+
+### 1. `bin/PDFtoPrinter.exe` — NEW FILE
+Copied from `production_electron/bin/PDFtoPrinter.exe`.
+Windows-only binary. Ignored on macOS/Linux at runtime.
+
+### 2. `package.json`
+Added to `extraResources` so electron-builder bundles it in Windows installers:
 ```json
-"extraResources": [
-  {
-    "from": ".env.example",
-    "to": ".env.example"
-  },
-  {
-    "from": "bin/PDFtoPrinter.exe",
-    "to": "bin/PDFtoPrinter.exe"
-  }
-]
+{
+  "from": "bin/PDFtoPrinter.exe",
+  "to": "bin/PDFtoPrinter.exe"
+}
 ```
+In a packaged build this lands at `resources/bin/PDFtoPrinter.exe` inside the app.
 
-This places the binary at `resources/bin/PDFtoPrinter.exe` inside the packaged app.
-
----
-
-### 3. Update `main.js` — Compute Binary Path
-
-Add `binDir` computation and pass it to `startServer`. The path differs between dev and packaged builds:
-
-- **Development**: `<project-root>/bin/PDFtoPrinter.exe`  
-- **Packaged**: `<app>/resources/bin/PDFtoPrinter.exe` (via `process.resourcesPath`)
-
-Pass `binDir` into `startServer(...)` alongside the existing options.
-
----
-
-### 4. Update `server/index.js` — Accept and Forward `binDir`
-
-Update `startServer({ port, rootDir, security, onLog, binDir })` to accept the new parameter and forward it to the printer router:
-
+### 3. `main.js`
+Added `binDir` computation near the top of the file (after variable declarations):
 ```js
-app.use('/printers', printerRoutes(binDir));
+const binDir = app.isPackaged
+  ? path.join(process.resourcesPath, 'bin')
+  : path.join(__dirname, 'bin');
+```
+- **Dev mode** (`npm start`): resolves to `<project-root>/bin/`
+- **Packaged build**: resolves to `<app>/resources/bin/`
+
+`binDir` is passed into both `startServer(...)` calls (auto-start and manual start via IPC).
+
+### 4. `server/index.js`
+`startServer()` now accepts `binDir` and forwards it to the printer router:
+```js
+async function startServer({ port, rootDir, security, onLog, binDir }) {
+  ...
+  app.use('/printers', printerRoutes(binDir));
+}
 ```
 
----
+### 5. `server/routes/printers.js`
+`printerRouter()` now accepts `binDir`. `printFileWindows` replaced:
 
-### 5. Update `server/routes/printers.js` — Replace Windows Print Function
+**Before (broken on PDFs):**
+```js
+function printFileWindows(file, printerName) {
+  const ps = printerName
+    ? `Start-Process -FilePath "${file}" -Verb Print -ArgumentList "/p /h \\"${printerName}\\""`
+    : `Start-Process -FilePath "${file}" -Verb Print`;
+  return new Promise((resolve, reject) => {
+    exec(`powershell -command "${ps}"`, (err, _stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      resolve();
+    });
+  });
+}
+```
 
-Replace the current `printFileWindows` (which uses `Start-Process -Verb Print`) with one that uses PDFtoPrinter.exe:
-
+**After (uses PDFtoPrinter.exe):**
 ```js
 function printFileWindows(file, printerName, binDir) {
   return new Promise((resolve, reject) => {
@@ -86,31 +105,84 @@ function printFileWindows(file, printerName, binDir) {
 }
 ```
 
-Update `printerRouter()` to accept `binDir` as a parameter and thread it through.
+macOS/Linux still uses `lpr -P <printer> <file>` — unchanged.
 
 ---
 
-## Files Changed
+## How to Test on Windows (Dev Mode)
 
-| File | Change |
-|------|--------|
-| `bin/PDFtoPrinter.exe` | **New** — copied from production_electron |
-| `package.json` | Add `bin/PDFtoPrinter.exe` to `extraResources` |
-| `main.js` | Compute `binDir`, pass to `startServer` |
-| `server/index.js` | Accept `binDir`, pass to `printerRoutes()` |
-| `server/routes/printers.js` | Replace `printFileWindows` with PDFtoPrinter.exe implementation |
+### Prerequisites
+- Node.js installed (via nodejs.org or `winget install OpenJS.NodeJS`)
+- Git installed (`winget install Git.Git`)
+- SSH keys copied from Mac (stored in `~/.ssh/id_ed25519`)
 
-## Files NOT Changed
+### Steps
+```powershell
+# 1. Add SSH key
+mkdir $HOME\.ssh
+copy <thumbdrive>\id_ed25519 $HOME\.ssh\
+copy <thumbdrive>\id_ed25519.pub $HOME\.ssh\
 
-- `printFilePosix` — `lpr -P` is correct on macOS/Linux, no change needed
-- All filesystem, serial, and security code — untouched
-- All tests — no print behaviour tests currently exist for Windows path
+# 2. Clone the repo (get the SSH remote URL from GitHub)
+git clone git@github.com:<org>/electron-remote-interface.git
+cd electron-remote-interface
+
+# 3. Install dependencies
+npm install
+
+# 4. Start the app
+npm start
+```
+
+### Test the print endpoint
+With the app running, send a POST to print a PDF:
+```powershell
+curl -X POST "http://localhost:8080/printers/print" `
+  -F "file=@C:\path\to\test.pdf" `
+  -F "printer=Your Printer Name"
+```
+
+Or without specifying a printer (uses Windows default):
+```powershell
+curl -X POST "http://localhost:8080/printers/print" `
+  -F "file=@C:\path\to\test.pdf"
+```
 
 ---
 
-## Notes
+## Debugging Tips for the Windows Session
 
-- The macOS `lpr` implementation stays as-is (it already works)
-- PDFtoPrinter.exe is Windows-only; on macOS/Linux the binary is ignored
-- The `binDir` is only used on `win32` platform at runtime
-- No new npm dependencies required
+### Check PDFtoPrinter.exe is found
+In the running app, if printing fails with "ENOENT" or "not found", the binary path is wrong.
+Check that `bin\PDFtoPrinter.exe` exists relative to the project root.
+
+### Check printer name
+Get exact printer names via PowerShell:
+```powershell
+Get-Printer | Select-Object Name
+```
+Or hit the list endpoint:
+```
+GET http://localhost:8080/printers/list
+```
+
+### Error from PDFtoPrinter.exe itself
+If `execFile` returns an error from the binary (not a path error), try running it manually:
+```powershell
+.\bin\PDFtoPrinter.exe "C:\path\to\test.pdf" "Printer Name"
+```
+This will show any error output directly.
+
+### Check what binDir resolves to
+In dev mode `binDir` = `<project-root>\bin`. Verify:
+```powershell
+ls .\bin\PDFtoPrinter.exe
+```
+
+---
+
+## macOS / Linux
+No changes to the macOS/Linux print path. It continues to use:
+```
+lpr -P "Printer Name" /path/to/file.pdf
+```

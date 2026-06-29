@@ -29,7 +29,7 @@ function logMiddleware(onLog) {
   };
 }
 
-async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, onLog }) {
+async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, onLog, binDir }) {
   const resolvedRoot = rootDir || os.homedir();
 
   const corsOptions = security.mode === 'domains'
@@ -46,7 +46,7 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
   app.use(securityMiddleware(security));
 
   app.use('/fs', fsRoutes(resolvedRoot));
-  app.use('/printers', printerRoutes());
+  app.use('/printers', printerRoutes(binDir));
   app.use('/serial', serialRoutes());
 
   app.get('/', (req, res) => {

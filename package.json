@@ -26,6 +26,10 @@
       {
         "from": ".env.example",
         "to": ".env.example"
+      },
+      {
+        "from": "bin/PDFtoPrinter.exe",
+        "to": "bin/PDFtoPrinter.exe"
       }
     ],
     "mac": {

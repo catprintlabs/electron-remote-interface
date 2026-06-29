@@ -9,6 +9,9 @@ const { resolveConfig: resolveConfigFromFile, saveConfig: saveConfigToFile } = r
 
 let mainWindow = null;
 let serverPort = 8080;
+const binDir = app.isPackaged
+  ? path.join(process.resourcesPath, 'bin')
+  : path.join(__dirname, 'bin');
 let securityConfig = null;
 let TUNNEL_MODE = false;
 let serverRunning = false;
@@ -153,7 +156,7 @@ ipcMain.handle('get-status', () => ({
 async function autoStart() {
   if (serverRunning) return;
   try {
-    await startServer({ port: serverPort, rootDir: null, security: securityConfig, onLog });
+    await startServer({ port: serverPort, rootDir: null, security: securityConfig, onLog, binDir });
     serverRunning = true;
     broadcastStatus();
     if (TUNNEL_MODE) startTunnel(serverPort);
@@ -169,7 +172,7 @@ ipcMain.handle('start-server', async (_, { port, rootDir, security, tunnelMode }
   if (tunnelMode !== undefined) TUNNEL_MODE = tunnelMode;
   saveConfig({ security: securityConfig, tunnel: TUNNEL_MODE, port: serverPort });
   try {
-    await startServer({ port: serverPort, rootDir, security: securityConfig, onLog });
+    await startServer({ port: serverPort, rootDir, security: securityConfig, onLog, binDir });
     serverRunning = true;
     broadcastStatus();
     if (TUNNEL_MODE) startTunnel(serverPort);
