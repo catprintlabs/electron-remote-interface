@@ -3,3 +3,6 @@ dist/
 .env
 deploy/*.exe
 .DS_Store
+bin/*.exe
+bin/*.txt
+bin/gs/

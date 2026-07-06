@@ -253,6 +253,24 @@
       color: var(--accent2);
       font-family: monospace;
     }
+
+    .version-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .ver-chip { font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .ver-chip code {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent2);
+      font-family: monospace;
+      font-size: 10px;
+    }
   </style>
 </head>
 <body>
@@ -326,6 +344,14 @@
         </div>
       </div>
 
+      <div class="section" id="scale-sim-section" style="display:none;">
+        <label>Simulate Scale (dev)</label>
+        <div class="dir-row">
+          <input type="number" id="scale-sim-input" placeholder="Weight (lb)" step="0.01" min="0" />
+          <button class="btn-secondary btn-sm" id="scale-sim-btn">Set</button>
+        </div>
+      </div>
+
       <div class="api-section" style="margin-top:auto;">
         <b style="color:var(--text);">Quick API Reference</b><br/>
         <code>GET /fs/list?path=/</code> — list dir<br/>
@@ -339,6 +365,13 @@
         <code>POST /serial/write</code> — write data<br/>
         <code>WS /serial/stream?port=...</code> — stream<br/>
         <span id="auth-hint" style="color:var(--accent2);"></span>
+      </div>
+
+      <div class="version-bar">
+        <span class="ver-chip">App <code id="v-app">…</code></span>
+        <span class="ver-chip">Electron <code id="v-electron">…</code></span>
+        <span class="ver-chip">Node <code id="v-node">…</code></span>
+        <span class="ver-chip">pdfprint <code id="v-pdfprint">…</code></span>
       </div>
 
     </div>

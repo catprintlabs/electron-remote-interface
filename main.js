@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 const { startServer, stopServer } = require('./server');
 const { resolveConfig: resolveConfigFromFile, saveConfig: saveConfigToFile } = require('./lib/config');
 
@@ -12,6 +13,20 @@ let serverPort = 8080;
 const binDir = app.isPackaged
   ? path.join(process.resourcesPath, 'bin')
   : path.join(__dirname, 'bin');
+
+let pdfprintVersion = 'not installed';
+try {
+  const vf = path.join(binDir, 'pdfprint-version.txt');
+  if (fs.existsSync(vf)) pdfprintVersion = fs.readFileSync(vf, 'utf8').trim();
+} catch {}
+
+const versions = {
+  app: app.getVersion(),
+  electron: process.versions.electron,
+  node: process.versions.node,
+  pdfprint: pdfprintVersion,
+};
+
 let securityConfig = null;
 let TUNNEL_MODE = false;
 let serverRunning = false;
@@ -136,6 +151,7 @@ function createWindow() {
     mainWindow.show();
     mainWindow.minimize();
     autoStart();
+    if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify();
   });
 
   mainWindow.on('close', () => {
@@ -151,12 +167,20 @@ ipcMain.handle('get-status', () => ({
   ips: getLocalIPs(),
   tunnelMode: TUNNEL_MODE,
   tunnelUrl,
+  isDev: !app.isPackaged,
+  versions,
 }));
+
+if (!app.isPackaged) {
+  ipcMain.handle('scale-simulate', (_, weightLb) => {
+    require('./server/lib/scale-reader').simulate(weightLb);
+  });
+}
 
 async function autoStart() {
   if (serverRunning) return;
   try {
-    await startServer({ port: serverPort, rootDir: null, security: securityConfig, onLog, binDir });
+    await startServer({ port: serverPort, rootDir: null, security: securityConfig, onLog, binDir, versions });
     serverRunning = true;
     broadcastStatus();
     if (TUNNEL_MODE) startTunnel(serverPort);
@@ -172,7 +196,7 @@ ipcMain.handle('start-server', async (_, { port, rootDir, security, tunnelMode }
   if (tunnelMode !== undefined) TUNNEL_MODE = tunnelMode;
   saveConfig({ security: securityConfig, tunnel: TUNNEL_MODE, port: serverPort });
   try {
-    await startServer({ port: serverPort, rootDir, security: securityConfig, onLog, binDir });
+    await startServer({ port: serverPort, rootDir, security: securityConfig, onLog, binDir, versions });
     serverRunning = true;
     broadcastStatus();
     if (TUNNEL_MODE) startTunnel(serverPort);

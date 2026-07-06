@@ -18,6 +18,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**/*",
       "renderer/**/*",
       "server/**/*",
       "node_modules/**/*"
@@ -26,10 +27,6 @@
       {
         "from": ".env.example",
         "to": ".env.example"
-      },
-      {
-        "from": "bin/PDFtoPrinter.exe",
-        "to": "bin/PDFtoPrinter.exe"
       }
     ],
     "mac": {
@@ -52,12 +49,22 @@
             "x64"
           ]
         }
+      ],
+      "extraResources": [
+        { "from": "bin/pdfprint.exe",           "to": "bin/pdfprint.exe" },
+        { "from": "bin/pdfprint-version.txt",   "to": "bin/pdfprint-version.txt" },
+        { "from": "bin/gs",                     "to": "bin/gs" }
       ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "include": "build/installer.nsh"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "catprintlabs",
+      "repo": "electron-remote-interface"
     }
   },
   "jest": {
@@ -70,8 +77,10 @@
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
+    "electron-updater": "^6.8.9",
     "express": "^4.18.2",
     "multer": "^2.1.1",
+    "node-hid": "^3.3.0",
     "serialport": "^12.0.0",
     "ws": "^8.16.0"
   },

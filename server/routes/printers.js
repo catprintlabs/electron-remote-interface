@@ -50,8 +50,8 @@ function printFilePosix(file, printerName) {
 
 function printFileWindows(file, printerName, binDir) {
   return new Promise((resolve, reject) => {
-    const exe = path.join(binDir, 'PDFtoPrinter.exe');
-    const args = printerName ? [file, printerName] : [file];
+    const exe = path.join(binDir, 'pdfprint.exe');
+    const args = printerName ? ['--printer', printerName, file] : [file];
     execFile(exe, args, (err, _stdout, stderr) => {
       if (err) return reject(new Error(stderr || err.message));
       resolve();

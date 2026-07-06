@@ -52,6 +52,52 @@ ERI_API_KEY=          # used with api-key security mode
 ERI_ALLOWED_DOMAINS=*.catprint.com   # default domain list for domains mode
 ```
 
+## Binary dependencies
+
+### pdfprint + Ghostscript (Windows only)
+
+PDF printing on Windows uses `pdfprint.exe`, a custom Go-based utility developed
+by CatPrint. It drives Ghostscript to rasterize PDFs and submits them to the
+Windows RAW spooler.
+
+**Source repo:** `github.com/catprintlabs/pdfprint`
+
+**CLI usage:**
+```
+pdfprint.exe --printer "Printer Name" job.pdf
+pdfprint.exe --ppd hp.ppd --printer "Printer Name" --duplex long --copies 2 job.pdf
+pdfprint.exe --list-printers
+```
+
+**Ghostscript:** shipped alongside `pdfprint.exe` in a `gs/` subdirectory.
+`pdfprint.exe` auto-detects it by looking next to itself — no separate install needed.
+
+**How binaries get into the installer:**
+
+The `bin/` directory is intentionally empty in git (see `.gitignore`). The CI
+build job (`build-win` in `.github/workflows/build.yml`) automatically downloads
+the latest `pdfprint-windows-amd64.zip` from the pdfprint GitHub releases,
+extracts `pdfprint.exe` and `gs/` into `bin/`, then electron-builder bundles
+them via `win.extraResources`. The downloaded pdfprint version is logged in the
+CI output and written to `bin/pdfprint-version.txt`, which is displayed in the
+app's GUI.
+
+**Local dev / testing on Windows:**
+
+To test printing locally without running a full CI build, run the same download
+step manually:
+```powershell
+gh release download --repo catprintlabs/pdfprint --pattern "pdfprint-windows-amd64.zip" --dir .
+Expand-Archive pdfprint-windows-amd64.zip -DestinationPath bin-tmp
+Copy-Item bin-tmp\pdfprint.exe bin\
+Copy-Item -Recurse bin-tmp\gs bin\gs
+Remove-Item -Recurse bin-tmp
+```
+
+**Releasing a new pdfprint version:** tag and push a release in the pdfprint
+repo, then tag a new electron-remote-interface release — the next build
+automatically picks up the latest pdfprint.
+
 ## API endpoints
 
 | Method | Path | Description |
@@ -66,6 +112,7 @@ ERI_ALLOWED_DOMAINS=*.catprint.com   # default domain list for domains mode
 | POST | `/fs/append?path=` | Append to file |
 | POST | `/fs/mkdir?path=` | Create directory |
 | POST | `/fs/move` | Move/rename `{from, to}` |
+| POST | `/fs/copy-to-network` | Copy file to absolute/UNC path outside rootDir `{from, to}` |
 | DELETE | `/fs/delete?path=` | Delete file or directory |
 | GET | `/printers/list` | List printers |
 | POST | `/printers/print` | Print file (multipart) |
@@ -77,6 +124,9 @@ ERI_ALLOWED_DOMAINS=*.catprint.com   # default domain list for domains mode
 | POST | `/serial/write` | Write data `{port, data, encoding?}` |
 | GET | `/serial/read?port=` | Flush buffered received data |
 | WS | `/serial/stream?port=` | Bidirectional WebSocket stream |
+| GET | `/scale/status` | Scale plug-in state and current weight `{pluggedIn, weightLb}` |
+| GET | `/scale/weight` | Current weight in pounds (404 if not connected) |
+| WS | `/scale/stream` | Pushes `{weightLb}` on every weight change |
 
 ## Testing
 

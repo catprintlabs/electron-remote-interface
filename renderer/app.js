@@ -20,6 +20,9 @@ const tunnelUrlDisplay = document.getElementById('tunnel-url-display');
 const copyTunnelBtn = document.getElementById('copy-tunnel-btn');
 const logEntries = document.getElementById('log-entries');
 const clearLogBtn = document.getElementById('clear-log-btn');
+const scaleSimSection = document.getElementById('scale-sim-section');
+const scaleSimInput = document.getElementById('scale-sim-input');
+const scaleSimBtn = document.getElementById('scale-sim-btn');
 
 let running = false;
 let logCount = 0;
@@ -138,6 +141,15 @@ async function init() {
   applySecurityToUI(status.securityConfig);
   tunnelCheck.checked = status.tunnelMode || false;
 
+  if (status.isDev) scaleSimSection.style.display = '';
+
+  if (status.versions) {
+    document.getElementById('v-app').textContent      = status.versions.app      || '—';
+    document.getElementById('v-electron').textContent = status.versions.electron  || '—';
+    document.getElementById('v-node').textContent     = status.versions.node      || '—';
+    document.getElementById('v-pdfprint').textContent = status.versions.pdfprint  || '—';
+  }
+
   applyStatus(status);
 
   window.api.onStatusChanged(applyStatus);
@@ -188,6 +200,11 @@ copyTunnelBtn.addEventListener('click', () => {
 clearLogBtn.addEventListener('click', () => {
   logEntries.innerHTML = '<div style="color: var(--muted); padding: 12px 0; text-align:center;">Log cleared.</div>';
   logCount = 0;
+});
+
+scaleSimBtn.addEventListener('click', () => {
+  const w = parseFloat(scaleSimInput.value);
+  if (!isNaN(w) && w >= 0) window.api.simulateScale(w);
 });
 
 init();

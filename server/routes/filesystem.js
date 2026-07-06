@@ -55,7 +55,8 @@ module.exports = function fsRouter(root) {
     try {
       const target = safePath(root, req.query.path || req.body?.path || '');
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      const data = req.file ? req.file.buffer : Buffer.from(req.body?.content ?? '', 'utf8');
+      const encoding = req.body?.encoding === 'base64' ? 'base64' : 'utf8';
+      const data = req.file ? req.file.buffer : Buffer.from(req.body?.content ?? '', encoding);
       fs.writeFileSync(target, data);
       res.json({ ok: true, path: target });
     } catch (err) { next(err); }
@@ -100,6 +101,19 @@ module.exports = function fsRouter(root) {
       const to = safePath(root, req.body?.to || '');
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.renameSync(from, to);
+      res.json({ ok: true });
+    } catch (err) { next(err); }
+  });
+
+  // Copy a file from rootDir to an absolute network/UNC path outside rootDir
+  router.post('/copy-to-network', (req, res, next) => {
+    try {
+      const from = safePath(root, req.body?.from || '');
+      const to = req.body?.to || '';
+      if (!to) return res.status(400).json({ error: 'to is required' });
+      if (!path.isAbsolute(to)) return res.status(400).json({ error: 'to must be an absolute path' });
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.copyFileSync(from, to);
       res.json({ ok: true });
     } catch (err) { next(err); }
   });

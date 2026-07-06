@@ -7,6 +7,7 @@ const os = require('os');
 const fsRoutes = require('./routes/filesystem');
 const printerRoutes = require('./routes/printers');
 const serialRoutes = require('./routes/serial');
+const scaleRoutes = require('./routes/scale');
 const { allowedByDomains, securityMiddleware } = require('./security');
 
 let httpServer = null;
@@ -29,7 +30,7 @@ function logMiddleware(onLog) {
   };
 }
 
-async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, onLog, binDir }) {
+async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, onLog, binDir, versions = {} }) {
   const resolvedRoot = rootDir || os.homedir();
 
   const corsOptions = security.mode === 'domains'
@@ -48,6 +49,7 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
   app.use('/fs', fsRoutes(resolvedRoot));
   app.use('/printers', printerRoutes(binDir));
   app.use('/serial', serialRoutes());
+  app.use('/scale', scaleRoutes());
 
   app.get('/', (req, res) => {
     const groups = [
@@ -68,7 +70,8 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
           { method: 'POST',   path: '/fs/write',    description: 'Write file — multipart field "file" or JSON body {content}', params: '?path=...' },
           { method: 'POST',   path: '/fs/append',   description: 'Append to file — JSON body {content}', params: '?path=...' },
           { method: 'POST',   path: '/fs/mkdir',    description: 'Create directory',                     params: '?path=...' },
-          { method: 'POST',   path: '/fs/move',     description: 'Rename or move — JSON body {from, to}' },
+          { method: 'POST',   path: '/fs/move',          description: 'Rename or move — JSON body {from, to}' },
+          { method: 'POST',   path: '/fs/copy-to-network', description: 'Copy file to absolute/UNC path outside rootDir — JSON body {from, to}' },
           { method: 'DELETE', path: '/fs/delete',   description: 'Delete file or directory (recursive)', params: '?path=...' },
         ],
       },
@@ -90,6 +93,14 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
           { method: 'POST', path: '/serial/write',  description: 'Write data — JSON body {port, data, encoding?}  (encoding: "utf8" | "hex")' },
           { method: 'GET',  path: '/serial/read',   description: 'Flush buffered received data',     params: '?port=...' },
           { method: 'WS',   path: '/serial/stream', description: 'Bidirectional WebSocket stream',   params: '?port=...&api_key=...' },
+        ],
+      },
+      {
+        name: 'Scale',
+        endpoints: [
+          { method: 'GET', path: '/scale/status', description: 'Scale plug-in state and current weight — {pluggedIn, weightLb}' },
+          { method: 'GET', path: '/scale/weight', description: 'Current weight in pounds — 404 if not connected' },
+          { method: 'WS',  path: '/scale/stream', description: 'WebSocket — pushes {weightLb} on every weight change' },
         ],
       },
     ];
@@ -150,7 +161,7 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
   });
 
   app.get('/status', (req, res) => {
-    res.json({ ok: true, 'root-directory': resolvedRoot, platform: process.platform });
+    res.json({ ok: true, 'root-directory': resolvedRoot, platform: process.platform, versions });
   });
 
   app.use((err, req, res, next) => {
@@ -162,6 +173,10 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
   // WebSocket server for serial port streaming
   wss = new WebSocketServer({ server: httpServer, path: '/serial/stream' });
   serialRoutes.attachWebSocket(wss, security);
+
+  // WebSocket server for scale weight streaming
+  const wssScale = new WebSocketServer({ server: httpServer, path: '/scale/stream' });
+  scaleRoutes.attachWebSocket(wssScale, security);
 
   await new Promise((resolve, reject) => {
     httpServer.listen(port, '0.0.0.0', resolve);

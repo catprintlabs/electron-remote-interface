@@ -9,15 +9,18 @@ const { startServer, stopServer } = require('../server');
 const PORT = 19876;
 const BASE = `http://localhost:${PORT}`;
 let tmpDir;
+let netDir;
 
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eri-test-'));
+  netDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eri-net-test-'));
   await startServer({ port: PORT, rootDir: tmpDir, security: { mode: 'none' }, onLog: () => {} });
 });
 
 afterAll(async () => {
   await stopServer();
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(netDir, { recursive: true, force: true });
 });
 
 const get  = (url)        => fetch(`${BASE}${url}`);
@@ -51,7 +54,6 @@ describe('GET /status', () => {
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(json['root-directory']).toBe(tmpDir);
-    console.log("tmpDir "+json.root)
   });
 });
 
@@ -168,6 +170,41 @@ describe('File System', () => {
     const res = await del('/fs/delete?path=subdir');
     expect(res.status).toBe(200);
     expect(fs.existsSync(path.join(tmpDir, 'subdir'))).toBe(false);
+  });
+
+  test('POST /fs/copy-to-network copies file to absolute path outside rootDir', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'tocopy.txt'), 'hello network');
+    const dst = path.join(netDir, 'copied.txt');
+    const res = await post('/fs/copy-to-network', { from: 'tocopy.txt', to: dst });
+    expect(res.status).toBe(200);
+    expect(fs.readFileSync(dst, 'utf8')).toBe('hello network');
+  });
+
+  test('POST /fs/copy-to-network creates destination directories', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'tocopy2.txt'), 'nested');
+    const dst = path.join(netDir, 'deep', 'sub', 'copied2.txt');
+    const res = await post('/fs/copy-to-network', { from: 'tocopy2.txt', to: dst });
+    expect(res.status).toBe(200);
+    expect(fs.readFileSync(dst, 'utf8')).toBe('nested');
+  });
+
+  test('POST /fs/copy-to-network rejects relative to path', async () => {
+    const res = await post('/fs/copy-to-network', { from: 'tocopy.txt', to: 'relative/path.txt' });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/absolute/);
+  });
+
+  test('POST /fs/copy-to-network rejects missing to field', async () => {
+    const res = await post('/fs/copy-to-network', { from: 'tocopy.txt' });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/required/);
+  });
+
+  test('POST /fs/copy-to-network rejects from path traversal', async () => {
+    const res = await post('/fs/copy-to-network', { from: '../../../etc/passwd', to: path.join(netDir, 'out.txt') });
+    expect(res.status).toBe(403);
   });
 
   test('GET /fs/read with path traversal returns 403', async () => {
