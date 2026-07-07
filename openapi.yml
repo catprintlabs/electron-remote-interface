@@ -1,0 +1,992 @@
+openapi: 3.0.3
+
+info:
+  title: Electron Remote Interface
+  version: 1.0.0-alpha.9
+  description: |
+    HTTP API exposing local hardware — file system, printers, serial ports, and USB
+    scale — on each Windows PC at catprint.com. Called remotely from the Rails app.
+
+    ## Authentication
+
+    Controlled by the app's configured security mode:
+
+    | Mode | How to authenticate |
+    |---|---|
+    | `none` | No auth required |
+    | `api-key` | Send header `x-api-key: <key>` **or** query param `?api_key=<key>` |
+    | `domains` | Request must carry an `Origin` header from an allowed domain (e.g. `*.catprint.com`) |
+
+    ## WebSocket endpoints
+
+    Not representable in OpenAPI 3.0 — documented here for completeness.
+
+    **`WS /serial/stream?port=<path>[&api_key=<key>]`**
+    - Bidirectional. Server pushes `{"port":"COM3","hex":"41","text":"A"}` on incoming serial data.
+    - Client can send `{"data":"hello","encoding":"utf8"}` or `{"data":"ff00","encoding":"hex"}` to write.
+
+    **`WS /scale/stream[?api_key=<key>]`**
+    - Read-only. Server pushes `{"weightLb":1.23}` on every weight change.
+    - On connect, immediately sends the current weight if the scale is plugged in.
+
+servers:
+  - url: http://localhost:8080
+    description: Local default
+  - url: http://{host}:{port}
+    description: Custom host/port
+    variables:
+      host:
+        default: localhost
+      port:
+        default: '8080'
+
+# ─── Shared components ────────────────────────────────────────────────────────
+
+components:
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+    apiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key
+
+  schemas:
+
+    Ok:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: Path traversal denied
+
+    # ── Print options shared across all three print endpoints ──────────────────
+    PrintOptions:
+      type: object
+      properties:
+        printer:
+          type: string
+          description: Windows printer queue name. Omit to use the system default printer.
+          example: HP LaserJet Pro
+        copies:
+          type: integer
+          minimum: 1
+          default: 1
+        duplex:
+          type: string
+          enum: [none, long, short]
+          default: none
+          description: "`none` = simplex, `long` = duplex long-edge, `short` = duplex short-edge"
+        color:
+          type: string
+          enum: [auto, color, mono]
+          default: auto
+        scale:
+          type: string
+          enum: [none, fit]
+          default: none
+          description: "`none` = 1:1 (no scaling), `fit` = scale to fill the page"
+        page-size:
+          type: string
+          description: >
+            Named size (Letter, Legal, A4, A3, Tabloid, Ledger, Executive, Statement)
+            or exact dimensions (8.5x11in, 216x279mm, 612x792).
+            Defaults to the PDF's own size.
+          example: Letter
+        doc-name:
+          type: string
+          description: Document title shown in the Windows print spooler queue.
+          example: "Order #1234"
+
+    # ── File system ────────────────────────────────────────────────────────────
+    FsEntry:
+      type: object
+      required: [name, isDir, size, mtime]
+      properties:
+        name:
+          type: string
+        isDir:
+          type: boolean
+        size:
+          type: integer
+        mtime:
+          type: string
+          format: date-time
+
+    FsStat:
+      type: object
+      required: [path, isDir, size, mtime, ctime]
+      properties:
+        path:
+          type: string
+        isDir:
+          type: boolean
+        size:
+          type: integer
+        mtime:
+          type: string
+          format: date-time
+        ctime:
+          type: string
+          format: date-time
+
+    # ── Printers ───────────────────────────────────────────────────────────────
+    Printer:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          example: "(FC:90:A7) HP LaserJet"
+        status:
+          type: string
+          example: Normal
+
+    # ── Serial ────────────────────────────────────────────────────────────────
+    SerialPortInfo:
+      type: object
+      properties:
+        path:
+          type: string
+          example: COM3
+        manufacturer:
+          type: string
+        serialNumber:
+          type: string
+        pnpId:
+          type: string
+        locationId:
+          type: string
+        productId:
+          type: string
+        vendorId:
+          type: string
+
+    SerialRecord:
+      type: object
+      required: [ts, hex, text]
+      properties:
+        ts:
+          type: integer
+          description: Unix timestamp in milliseconds
+        hex:
+          type: string
+          example: "48656c6c6f"
+        text:
+          type: string
+          example: Hello
+
+    # ── Status ────────────────────────────────────────────────────────────────
+    Versions:
+      type: object
+      properties:
+        app:
+          type: string
+          example: 1.0.0-alpha.9
+        electron:
+          type: string
+          example: "34.0.0"
+        node:
+          type: string
+          example: "20.18.0"
+        pdfprint:
+          type: string
+          example: v0.1.0
+
+  responses:
+    Forbidden:
+      description: Path traversal denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── General ─────────────────────────────────────────────────────────────────
+
+  /status:
+    get:
+      summary: Server status
+      operationId: getStatus
+      tags: [General]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, root-directory, platform]
+                properties:
+                  ok:
+                    type: boolean
+                  root-directory:
+                    type: string
+                    description: Absolute path that all /fs routes are rooted to
+                    example: C:\Users\operator
+                  platform:
+                    type: string
+                    example: win32
+                  versions:
+                    $ref: '#/components/schemas/Versions'
+
+  # ── File System ─────────────────────────────────────────────────────────────
+
+  /fs/list:
+    get:
+      summary: List directory contents
+      operationId: fsList
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          description: Path relative to rootDir
+          schema:
+            type: string
+            default: /
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, entries]
+                properties:
+                  path:
+                    type: string
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FsEntry'
+        '400':
+          description: Not a directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Path traversal denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /fs/read:
+    get:
+      summary: Read a file (raw bytes)
+      operationId: fsRead
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File contents as octet-stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/download:
+    get:
+      summary: Download a file with its original filename
+      operationId: fsDownload
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File sent with Content-Disposition attachment header
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/stat:
+    get:
+      summary: Stat a file or directory
+      operationId: fsStat
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FsStat'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/write:
+    post:
+      summary: Write a file
+      operationId: fsWrite
+      tags: [File System]
+      description: |
+        Two calling conventions:
+
+        **Multipart upload** — send field `file` (binary). The `path` query param
+        sets the destination. Overwrites any existing file.
+
+        **JSON body** — send `{"path":"…","content":"…","encoding":"utf8|base64"}`.
+        `encoding` defaults to `utf8`; use `base64` for binary content.
+      parameters:
+        - name: path
+          in: query
+          description: Destination path relative to rootDir (can also be in JSON body)
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+                  description: File content; use base64 encoding for binary data
+                encoding:
+                  type: string
+                  enum: [utf8, base64]
+                  default: utf8
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      path:
+                        type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/append:
+    post:
+      summary: Append text to a file
+      operationId: fsAppend
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/mkdir:
+    post:
+      summary: Create a directory (including parents)
+      operationId: fsMkdir
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      path:
+                        type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/move:
+    post:
+      summary: Rename or move a file within rootDir
+      operationId: fsMove
+      tags: [File System]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                  description: Source path relative to rootDir
+                to:
+                  type: string
+                  description: Destination path relative to rootDir
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/copy-to-network:
+    post:
+      summary: Copy a file from rootDir to an absolute or UNC network path
+      operationId: fsCopyToNetwork
+      tags: [File System]
+      description: |
+        Used to deposit files into iGen hot-folder network shares.
+        `from` is resolved against rootDir (traversal is blocked).
+        `to` must be an absolute path — e.g. `\\\\server\\share\\folder\\file.pdf`.
+        Destination directories are created automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                  description: Source path relative to rootDir
+                  example: print_queue/job123.pdf
+                to:
+                  type: string
+                  description: Absolute destination path (UNC paths supported on Windows)
+                  example: '\\\\press-server\\igen_queue\\job123.pdf'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Missing or relative `to` path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /fs/delete:
+    delete:
+      summary: Delete a file or directory (recursive)
+      operationId: fsDelete
+      tags: [File System]
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ── Printers ─────────────────────────────────────────────────────────────────
+
+  /printers/list:
+    get:
+      summary: List available printers
+      operationId: printersList
+      tags: [Printers]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [printers]
+                properties:
+                  printers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Printer'
+
+  /printers/print:
+    post:
+      summary: Print an uploaded file
+      operationId: printersprint
+      tags: [Printers]
+      description: |
+        Send the file as a multipart field named `file`. All print options are
+        passed as additional multipart fields or query params.
+        On Windows, routes through `pdfprint.exe`. On Mac/Linux, uses `lpr`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - type: object
+                  required: [file]
+                  properties:
+                    file:
+                      type: string
+                      format: binary
+                - $ref: '#/components/schemas/PrintOptions'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      printer:
+                        type: string
+        '400':
+          description: No file uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /printers/print-text:
+    post:
+      summary: Print plain text
+      operationId: printersPrintText
+      tags: [Printers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [text]
+                  properties:
+                    text:
+                      type: string
+                      description: Plain text content to print
+                - $ref: '#/components/schemas/PrintOptions'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      printer:
+                        type: string
+        '400':
+          description: Missing text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /printers/print-url:
+    post:
+      summary: Download a URL and print it
+      operationId: printersPrintUrl
+      tags: [Printers]
+      description: |
+        Downloads the file at `url` to a temp file (extension inferred from
+        Content-Disposition header, then URL path, defaulting to `.pdf`), prints
+        it, then deletes the temp file. On Windows uses `pdfprint.exe`;
+        on Mac/Linux uses `lpr`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [url]
+                  properties:
+                    url:
+                      type: string
+                      format: uri
+                      description: URL of the file to download and print
+                      example: https://iw.catprint.com/v1/imposings/abc123/ticket.pdf
+                - $ref: '#/components/schemas/PrintOptions'
+              example:
+                url: https://iw.catprint.com/v1/imposings/abc123/ticket.pdf
+                printer: "(FC:90:A7) HP LaserJet"
+                copies: 1
+                duplex: none
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      printer:
+                        type: string
+        '400':
+          description: Missing url
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Download from url failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ── Serial Ports ─────────────────────────────────────────────────────────────
+
+  /serial/list:
+    get:
+      summary: List available serial ports
+      operationId: serialList
+      tags: [Serial]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ports]
+                properties:
+                  ports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SerialPortInfo'
+
+  /serial/status:
+    get:
+      summary: List currently open serial ports
+      operationId: serialStatus
+      tags: [Serial]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ports]
+                properties:
+                  ports:
+                    type: array
+                    items:
+                      type: object
+                      required: [port, isOpen, buffered]
+                      properties:
+                        port:
+                          type: string
+                          example: COM3
+                        isOpen:
+                          type: boolean
+                        buffered:
+                          type: integer
+                          description: Number of unread records in the receive buffer
+
+  /serial/open:
+    post:
+      summary: Open a serial port
+      operationId: serialOpen
+      tags: [Serial]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [port]
+              properties:
+                port:
+                  type: string
+                  example: COM3
+                baudRate:
+                  type: integer
+                  default: 9600
+                dataBits:
+                  type: integer
+                  enum: [5, 6, 7, 8]
+                  default: 8
+                stopBits:
+                  type: number
+                  enum: [1, 1.5, 2]
+                  default: 1
+                parity:
+                  type: string
+                  enum: [none, even, odd, mark, space]
+                  default: none
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      port:
+                        type: string
+                      baudRate:
+                        type: integer
+        '400':
+          description: Missing port
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Port already open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /serial/close:
+    post:
+      summary: Close an open serial port
+      operationId: serialClose
+      tags: [Serial]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [port]
+              properties:
+                port:
+                  type: string
+                  example: COM3
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '404':
+          description: Port not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /serial/write:
+    post:
+      summary: Write data to an open serial port
+      operationId: serialWrite
+      tags: [Serial]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [port, data]
+              properties:
+                port:
+                  type: string
+                  example: COM3
+                data:
+                  type: string
+                  description: Data to write; interpreted as utf8 or hex depending on `encoding`
+                encoding:
+                  type: string
+                  enum: [utf8, hex]
+                  default: utf8
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Ok'
+                  - type: object
+                    properties:
+                      bytes:
+                        type: integer
+                        description: Number of bytes written
+        '404':
+          description: Port not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /serial/read:
+    get:
+      summary: Flush buffered received data from an open port
+      operationId: serialRead
+      tags: [Serial]
+      description: Returns and clears all records received since the last call.
+      parameters:
+        - name: port
+          in: query
+          required: true
+          schema:
+            type: string
+            example: COM3
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [port, records]
+                properties:
+                  port:
+                    type: string
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SerialRecord'
+        '404':
+          description: Port not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ── Scale ────────────────────────────────────────────────────────────────────
+
+  /scale/status:
+    get:
+      summary: Scale plug-in state and current weight
+      operationId: scaleStatus
+      tags: [Scale]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pluggedIn, weightLb]
+                properties:
+                  pluggedIn:
+                    type: boolean
+                  weightLb:
+                    type: number
+                    format: float
+                    description: Current weight in pounds; 0 when not plugged in
+                    example: 1.23
+
+  /scale/weight:
+    get:
+      summary: Current weight in pounds
+      operationId: scaleWeight
+      tags: [Scale]
+      responses:
+        '200':
+          description: Scale is connected
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [weightLb]
+                properties:
+                  weightLb:
+                    type: number
+                    format: float
+                    example: 1.23
+        '404':
+          description: Scale not connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+tags:
+  - name: General
+  - name: File System
+  - name: Printers
+  - name: Serial
+  - name: Scale
