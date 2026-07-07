@@ -129,6 +129,15 @@ automatically picks up the latest pdfprint.
 | GET | `/scale/weight` | Current weight in pounds (404 if not connected) |
 | WS | `/scale/stream` | Pushes `{weightLb}` on every weight change |
 
+## API Spec
+
+`openapi.yml` in the repo root is a complete OpenAPI 3.0 spec for all endpoints.
+Use it to generate a Rails client, write RSpec stubs, or import into Postman/Insomnia.
+All print options (`printer`, `copies`, `duplex`, `color`, `scale`, `page-size`, `doc-name`)
+are defined in the shared `PrintOptions` schema under `components`.
+WebSocket endpoints (`/serial/stream`, `/scale/stream`) are documented in the
+spec's `info.description` block since OpenAPI 3.0 does not natively support WebSockets.
+
 ## Testing
 
 ```bash
