@@ -271,9 +271,38 @@
       font-family: monospace;
       font-size: 10px;
     }
+
+    .update-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      background: #2d4a00;
+      border-bottom: 1px solid #5a9e00;
+      padding: 8px 20px;
+      font-size: 13px;
+      color: #c8f090;
+      flex-shrink: 0;
+    }
+    .update-banner.visible { display: flex; }
+    .update-banner button {
+      background: #5a9e00;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .update-banner button:hover { background: #6cb800; }
   </style>
 </head>
 <body>
+  <div class="update-banner" id="update-banner">
+    <span>&#10003; Update downloaded — restart to install the new version</span>
+    <button id="restart-btn">Restart Now</button>
+  </div>
+
   <header>
     <div class="status-dot" id="dot"></div>
     <h1>Remote Access Server</h1>

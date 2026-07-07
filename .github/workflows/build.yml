@@ -36,6 +36,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download cloudflared
+        shell: pwsh
+        run: |
+          $tag = (gh release view --repo cloudflare/cloudflared --json tagName | ConvertFrom-Json).tagName
+          Write-Host "cloudflared version: $tag"
+          gh release download --repo cloudflare/cloudflared --pattern "cloudflared-windows-amd64.exe" --dir bin
+          Rename-Item bin\cloudflared-windows-amd64.exe bin\cloudflared.exe
+          Get-Item bin\cloudflared.exe | Select-Object Name, @{N='Size(KB)';E={[math]::Round($_.Length/1KB,1)}}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and publish Windows installer
         run: npm run build:win -- --publish always
         env:

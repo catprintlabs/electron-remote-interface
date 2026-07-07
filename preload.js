@@ -9,5 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   onStatusChanged: (cb) => ipcRenderer.on('status-changed', (_, data) => cb(data)),
   onTunnelUrl: (cb) => ipcRenderer.on('tunnel-url', (_, url) => cb(url)),
   onLog: (cb) => ipcRenderer.on('log', (_, entry) => cb(entry)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', () => cb()),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
   simulateScale: (weightLb) => ipcRenderer.invoke('scale-simulate', weightLb),
 });

@@ -42,11 +42,13 @@ function resolveConfig() {
 }
 
 function resolveCloudflared() {
-  const candidates = [
-    '/opt/homebrew/bin/cloudflared',
-    '/usr/local/bin/cloudflared',
-    '/usr/bin/cloudflared',
-  ];
+  const candidates = process.platform === 'win32'
+    ? [path.join(binDir, 'cloudflared.exe')]
+    : [
+        '/opt/homebrew/bin/cloudflared',
+        '/usr/local/bin/cloudflared',
+        '/usr/bin/cloudflared',
+      ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
@@ -151,7 +153,10 @@ function createWindow() {
     mainWindow.show();
     mainWindow.minimize();
     autoStart();
-    if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify();
+    if (app.isPackaged) {
+      autoUpdater.on('update-downloaded', () => send('update-downloaded'));
+      autoUpdater.checkForUpdates();
+    }
   });
 
   mainWindow.on('close', () => {
@@ -223,6 +228,10 @@ ipcMain.handle('select-directory', async () => {
 ipcMain.handle('quit-app', async () => {
   app.isQuitting = true;
   app.quit();
+});
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
 });
 
 function onLog(entry) {

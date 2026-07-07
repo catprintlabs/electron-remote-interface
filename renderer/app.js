@@ -20,6 +20,8 @@ const tunnelUrlDisplay = document.getElementById('tunnel-url-display');
 const copyTunnelBtn = document.getElementById('copy-tunnel-btn');
 const logEntries = document.getElementById('log-entries');
 const clearLogBtn = document.getElementById('clear-log-btn');
+const updateBanner = document.getElementById('update-banner');
+const restartBtn = document.getElementById('restart-btn');
 const scaleSimSection = document.getElementById('scale-sim-section');
 const scaleSimInput = document.getElementById('scale-sim-input');
 const scaleSimBtn = document.getElementById('scale-sim-btn');
@@ -155,7 +157,10 @@ async function init() {
   window.api.onStatusChanged(applyStatus);
   window.api.onTunnelUrl(applyTunnelUrl);
   window.api.onLog(addLog);
+  window.api.onUpdateDownloaded(() => updateBanner.classList.add('visible'));
 }
+
+restartBtn.addEventListener('click', () => window.api.installUpdate());
 
 securityMode.addEventListener('change', updateSecuritySections);
 
