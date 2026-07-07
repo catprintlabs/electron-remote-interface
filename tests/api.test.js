@@ -238,6 +238,18 @@ describe('Printers', () => {
     const res = await post('/printers/print-text', { printer: 'SomePrinter' });
     expect(res.status).toBe(400);
   });
+
+  test('POST /printers/print-url without url returns 400', async () => {
+    const res = await post('/printers/print-url', { printer: 'SomePrinter' });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/url is required/);
+  });
+
+  test('POST /printers/print-url with unreachable url returns 502', async () => {
+    const res = await post('/printers/print-url', { url: 'http://127.0.0.1:19999/no-such-file.pdf' });
+    expect(res.status).toBe(500);
+  });
 });
 
 // ---------------------------------------------------------------------------

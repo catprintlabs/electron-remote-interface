@@ -115,8 +115,9 @@ automatically picks up the latest pdfprint.
 | POST | `/fs/copy-to-network` | Copy file to absolute/UNC path outside rootDir `{from, to}` |
 | DELETE | `/fs/delete?path=` | Delete file or directory |
 | GET | `/printers/list` | List printers |
-| POST | `/printers/print` | Print file (multipart) |
-| POST | `/printers/print-text` | Print plain text `{text, printer?}` |
+| POST | `/printers/print` | Print file (multipart) `{printer?, copies?, duplex?, color?, scale?, page-size?, doc-name?}` |
+| POST | `/printers/print-text` | Print plain text `{text, printer?, copies?, duplex?}` |
+| POST | `/printers/print-url` | Download URL and print `{url, printer?, copies?, duplex?, color?, scale?, page-size?, doc-name?}` |
 | GET | `/serial/list` | List serial ports |
 | GET | `/serial/status` | List open ports |
 | POST | `/serial/open` | Open port `{port, baudRate?, ...}` |

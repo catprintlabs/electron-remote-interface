@@ -79,8 +79,9 @@ async function startServer({ port = 8080, rootDir, security = { mode: 'none' }, 
         name: 'Printers',
         endpoints: [
           { method: 'GET',  path: '/printers/list',       description: 'List available printers' },
-          { method: 'POST', path: '/printers/print',      description: 'Print a file — multipart field "file", optional {printer}' },
-          { method: 'POST', path: '/printers/print-text', description: 'Print plain text — JSON body {text, printer?}' },
+          { method: 'POST', path: '/printers/print',      description: 'Print a file — multipart field "file", optional {printer, copies?, duplex?, color?, scale?, page-size?, doc-name?}' },
+          { method: 'POST', path: '/printers/print-text', description: 'Print plain text — JSON body {text, printer?, copies?, duplex?}' },
+          { method: 'POST', path: '/printers/print-url',  description: 'Download URL and print — JSON body {url, printer?, copies?, duplex?, color?, scale?, page-size?, doc-name?}' },
         ],
       },
       {
