@@ -1,6 +1,6 @@
 {
   "name": "electron-remote-interface",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.7",
   "description": "Remote HTTP access to file system, printers, and serial ports",
   "main": "main.js",
   "scripts": {
@@ -51,9 +51,18 @@
         }
       ],
       "extraResources": [
-        { "from": "bin/pdfprint.exe",           "to": "bin/pdfprint.exe" },
-        { "from": "bin/pdfprint-version.txt",   "to": "bin/pdfprint-version.txt" },
-        { "from": "bin/gs",                     "to": "bin/gs" }
+        {
+          "from": "bin/pdfprint.exe",
+          "to": "bin/pdfprint.exe"
+        },
+        {
+          "from": "bin/pdfprint-version.txt",
+          "to": "bin/pdfprint-version.txt"
+        },
+        {
+          "from": "bin/gs",
+          "to": "bin/gs"
+        }
       ]
     },
     "nsis": {
