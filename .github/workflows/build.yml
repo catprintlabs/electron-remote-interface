@@ -25,8 +25,9 @@ jobs:
           Write-Host "pdfprint version: $tag"
           gh release download --repo catprintlabs/pdfprint --pattern "pdfprint-windows-amd64.zip" --dir .
           Expand-Archive pdfprint-windows-amd64.zip -DestinationPath bin-tmp -Force
-          Copy-Item bin-tmp\pdfprint.exe bin\
-          Copy-Item -Recurse bin-tmp\gs bin\gs
+          $inner = (Get-ChildItem bin-tmp -Directory | Select-Object -First 1).FullName
+          Copy-Item "$inner\pdfprint.exe" bin\
+          Copy-Item -Recurse "$inner\gs" bin\gs
           Remove-Item -Recurse bin-tmp
           [System.IO.File]::WriteAllText("bin\pdfprint-version.txt", $tag)
           Write-Host "Bundled files:"
