@@ -129,6 +129,100 @@ automatically picks up the latest pdfprint.
 | GET | `/scale/weight` | Current weight in pounds (404 if not connected) |
 | WS | `/scale/stream` | Pushes `{weightLb}` on every weight change |
 
+## Rails Integration
+
+`client/electron-interface.js` is a browser JS library that wraps all endpoints.
+Include it in your Rails layout and call it from ERB or Stimulus controllers.
+The electron app runs on the same machine as the browser, so all calls go to `localhost:8080`.
+
+### Setup
+
+Copy (or symlink) the two files from this repo into your Rails `app/assets/javascripts/` or `vendor/`:
+
+| File | Use |
+|---|---|
+| `client/electron-interface.js` | Production — real HTTP/WebSocket calls to localhost |
+| `client/electron-interface-stub.js` | Test/CI — fake responses, same API shape |
+
+Include the right file from your layout based on environment:
+
+```erb
+<%# application.html.erb %>
+<%= javascript_include_tag Rails.env.test? ? 'electron-interface-stub' : 'electron-interface' %>
+```
+
+### Commands (fire-and-forget)
+
+```erb
+<button onclick="new ElectronInterface().printUrl('<%= @pdf_url %>', { printer: '<%= @printer %>' })">
+  Print
+</button>
+```
+
+### Commands with feedback (Stimulus)
+
+```js
+// print_controller.js
+export default class extends Controller {
+  static values = { url: String, printer: String }
+
+  async print(event) {
+    const btn = event.currentTarget
+    btn.disabled = true
+    btn.textContent = 'Printing…'
+    try {
+      await new ElectronInterface().printUrl(this.urlValue, { printer: this.printerValue })
+      btn.textContent = '✓ Sent to printer'
+    } catch (err) {
+      btn.textContent = 'Failed'
+    }
+  }
+}
+```
+
+```erb
+<button data-controller="print"
+        data-print-url-value="<%= @pdf_url %>"
+        data-print-printer-value="<%= @printer %>"
+        data-action="click->print#print">Print</button>
+```
+
+### Queries (Stimulus populates DOM)
+
+```js
+// printer_select_controller.js
+export default class extends Controller {
+  static targets = ["select"]
+  async connect() {
+    const { printers } = await new ElectronInterface().listPrinters()
+    this.selectTarget.innerHTML = printers
+      .map(p => `<option value="${p.name}">${p.name}</option>`).join('')
+  }
+}
+```
+
+```erb
+<div data-controller="printer-select">
+  <select name="printer" data-printer-select-target="select"><option>Loading…</option></select>
+</div>
+```
+
+### Streams (Stimulus manages lifecycle)
+
+```js
+// scale_controller.js
+export default class extends Controller {
+  static targets = ["weight"]
+  connect()    { this.stop = new ElectronInterface().streamScale(({ weightLb }) => {
+                   this.weightTarget.textContent = weightLb.toFixed(2) }) }
+  disconnect() { this.stop?.() }
+}
+```
+
+```erb
+<div data-controller="scale">Weight: <span data-scale-target="weight">—</span> lb</div>
+```
+
 ## API Spec
 
 `openapi.yml` in the repo root is a complete OpenAPI 3.0 spec for all endpoints.
